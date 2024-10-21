@@ -135,6 +135,36 @@ app.post('/set-budget', (req, res) => {
         res.redirect('/budgets');
     });
 });
+// Route to reset all expenses
+app.post('/reset-expenses', (req, res) => {
+    db.run('DELETE FROM expenses', (err) => {
+        if (err) {
+            throw err;
+        }
+        res.redirect('/');
+    });
+});
+// Route to delete an expense
+app.post('/delete-expense', (req, res) => {
+    const { id } = req.body; // Get the expense ID
+    db.run('DELETE FROM expenses WHERE id = ?', [id], (err) => {
+        if (err) {
+            throw err;
+        }
+        res.redirect('/');
+    });
+});
+// Route to delete a budget
+app.post('/delete-budget', (req, res) => {
+    const { category } = req.body;  // Extract the category from the form
+
+    db.run('DELETE FROM budgets WHERE category = ?', [category], (err) => {
+        if (err) {
+            throw err;
+        }
+        res.redirect('/budgets');  // Redirect to the budgets page after deletion
+    });
+});
 
 // Start the server
 app.listen(port, () => {

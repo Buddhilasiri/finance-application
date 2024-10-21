@@ -24,6 +24,7 @@
             </div>
         </div>
     </nav>
+    
     <div class="text-center mb-4">
         <label for="timeFilter" class="form-label">View by:</label>
         <select id="timeFilter" class="form-select w-auto d-inline-block">
@@ -77,6 +78,7 @@
                     <th>Budget</th>
                     <th>Spent</th>
                     <th>Remaining</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -85,26 +87,26 @@
                     expenses.forEach(expense => {
                         if (expense.expense_category === budget.category) {
                             totalSpent += expense.amount;
-                        }
-                    });
-            
-                    let remaining = budget.budget_amount - totalSpent;
-            
-                    // Round values if day or week is selected
-                    if (timeFrame === 'day' || timeFrame === 'week') {
-                        budget.budget_amount = Math.round(budget.budget_amount);
-                        totalSpent = Math.round(totalSpent);
-                        remaining = Math.round(remaining);
-                    }
-                %>
-                    <tr>
-                        <td><%= budget.category %></td>
-                        <td><%= budget.budget_amount %></td>
-                        <td><%= totalSpent %></td>
-                        <td><%= remaining %></td>
-                    </tr>
-                <% }) %>
+                    %>
+                        <tr>
+                            <td><%= budget.category %></td>
+                            <td><%= budget.budget_amount %></td>
+                            <td><%= totalSpent %></td>
+                            <td><%= budget.budget_amount - totalSpent %></td>
+                            <td>
+                                <!-- Delete Expense Form -->
+                                <form action="/delete-expense" method="POST" onsubmit="return confirm('Are you sure you want to delete this expense?');">
+                                    <input type="hidden" name="id" value="<%= expense.id %>">
+                                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <% 
+                        } 
+                    }); 
+                }) %>
             </tbody>
+            
             
         </table>
     </div>
@@ -184,6 +186,11 @@
             }
         });
     </script>
+    <div class="text-center my-4">
+        <form action="/reset-expenses" method="POST" onsubmit="return confirm('Are you sure you want to reset all expenses?');">
+            <button type="submit" class="btn btn-danger">Reset Expenses (Allowance Received)</button>
+        </form>
+    </div>
     
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
