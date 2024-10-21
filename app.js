@@ -8,7 +8,7 @@ const port = 4000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Set up view engine (EJS or plain HTML)
+// Set up view engine (EJS)
 app.set('view engine', 'ejs');
 
 // Connect to SQLite database
@@ -37,14 +37,22 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
     }
 });
 
-
 // Home route (render the table layout)
 app.get('/', (req, res) => {
-    db.all('SELECT * FROM expenses', [], (err, rows) => {
+    // Fetch both expenses and budgets
+    db.all('SELECT * FROM expenses WHERE expense_category != "Savings"', [], (err, expenseRows) => {
         if (err) {
             throw err;
         }
-        res.render('index', { expenses: rows });
+
+        db.all('SELECT * FROM budgets', [], (err, budgetRows) => {
+            if (err) {
+                throw err;
+            }
+
+            // Render both expenses and budgets
+            res.render('index', { expenses: expenseRows, budgets: budgetRows });
+        });
     });
 });
 
@@ -64,6 +72,7 @@ app.post('/add-expense', (req, res) => {
         }
     );
 });
+
 // Route to render the budget page (form to set budgets)
 app.get('/budgets', (req, res) => {
     db.all('SELECT * FROM budgets', [], (err, rows) => {
@@ -77,7 +86,7 @@ app.get('/budgets', (req, res) => {
 // Route to handle form submission for setting/updating budgets
 app.post('/set-budget', (req, res) => {
     const { category, budget_amount } = req.body;
-    
+
     db.run(`
         INSERT INTO budgets (category, budget_amount)
         VALUES (?, ?)
