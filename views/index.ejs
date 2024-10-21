@@ -24,7 +24,22 @@
             </div>
         </div>
     </nav>
-
+    <div class="text-center mb-4">
+        <label for="timeFilter" class="form-label">View by:</label>
+        <select id="timeFilter" class="form-select w-auto d-inline-block">
+            <option value="day" <%= timeFrame === 'day' ? 'selected' : '' %>>Day</option>
+            <option value="week" <%= timeFrame === 'week' ? 'selected' : '' %>>Week</option>
+            <option value="month" <%= timeFrame === 'month' ? 'selected' : '' %>>Month</option>
+        </select>
+    </div>
+    
+    <script>
+        document.getElementById('timeFilter').addEventListener('change', function() {
+            const timeFrame = this.value;
+            window.location.href = `/?timeFrame=${timeFrame}`;
+        });
+    </script>
+    
     <div class="container mt-5">
         <h1 class="text-center">Finance Planner</h1>
         <form action="/add-expense" method="POST" class="my-4">
@@ -72,8 +87,15 @@
                             totalSpent += expense.amount;
                         }
                     });
-        
+            
                     let remaining = budget.budget_amount - totalSpent;
+            
+                    // Round values if day or week is selected
+                    if (timeFrame === 'day' || timeFrame === 'week') {
+                        budget.budget_amount = Math.round(budget.budget_amount);
+                        totalSpent = Math.round(totalSpent);
+                        remaining = Math.round(remaining);
+                    }
                 %>
                     <tr>
                         <td><%= budget.category %></td>
@@ -83,6 +105,7 @@
                     </tr>
                 <% }) %>
             </tbody>
+            
         </table>
     </div>
     <h2 class="text-center mt-5">Spending Overview</h2>
