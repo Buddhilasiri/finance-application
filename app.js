@@ -16,6 +16,7 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
     if (err) {
         console.error('Error opening database', err.message);
     } else {
+        // Create table for expenses if it doesn't exist
         db.run(`
             CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,8 +26,17 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
                 date TEXT
             )
         `);
+
+        // Create table for budgets if it doesn't exist
+        db.run(`
+            CREATE TABLE IF NOT EXISTS budgets (
+                category TEXT PRIMARY KEY,
+                budget_amount REAL
+            )
+        `);
     }
 });
+
 
 // Home route (render the table layout)
 app.get('/', (req, res) => {
@@ -53,6 +63,31 @@ app.post('/add-expense', (req, res) => {
             res.redirect('/');
         }
     );
+});
+// Route to render the budget page (form to set budgets)
+app.get('/budgets', (req, res) => {
+    db.all('SELECT * FROM budgets', [], (err, rows) => {
+        if (err) {
+            throw err;
+        }
+        res.render('budgets', { budgets: rows });
+    });
+});
+
+// Route to handle form submission for setting/updating budgets
+app.post('/set-budget', (req, res) => {
+    const { category, budget_amount } = req.body;
+    
+    db.run(`
+        INSERT INTO budgets (category, budget_amount)
+        VALUES (?, ?)
+        ON CONFLICT(category) DO UPDATE SET budget_amount=excluded.budget_amount
+    `, [category, budget_amount], (err) => {
+        if (err) {
+            throw err;
+        }
+        res.redirect('/budgets');
+    });
 });
 
 // Start the server
