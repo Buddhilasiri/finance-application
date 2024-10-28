@@ -1,8 +1,11 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
+const { parse } = require('json2csv');
 const app = express();
 const port = 4000;
+
 
 // Middleware
 app.use(express.urlencoded({ extended: true }));
@@ -16,7 +19,7 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
     if (err) {
         console.error('Error opening database', err.message);
     } else {
-        // Create table for expenses if it doesn't exist
+        // Create tables if they don't exist
         db.run(`
             CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,11 +30,19 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
             )
         `);
 
-        // Create table for budgets if it doesn't exist
         db.run(`
             CREATE TABLE IF NOT EXISTS budgets (
                 category TEXT PRIMARY KEY,
                 budget_amount REAL
+            )
+        `);
+
+        db.run(`
+            CREATE TABLE IF NOT EXISTS income (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT,
+                amount REAL,
+                date TEXT
             )
         `);
     }
@@ -58,6 +69,7 @@ app.get('/', (req, res) => {
         budgetMultiplier = 1;
     }
 
+    // Query expenses and income
     db.all(`SELECT * FROM expenses WHERE date >= ?`, [dateFilter], (err, expenseRows) => {
         if (err) {
             throw err;
@@ -68,89 +80,133 @@ app.get('/', (req, res) => {
                 throw err;
             }
 
-            // Adjust the budgets for day/week
-            const adjustedBudgets = budgetRows.map(budget => ({
-                ...budget,
-                budget_amount: budget.budget_amount * budgetMultiplier
-            }));
+            db.all(`SELECT * FROM income WHERE date >= ?`, [dateFilter], (err, incomeRows) => {
+                if (err) {
+                    throw err;
+                }
 
-            // Render both expenses and budgets
-            res.render('index', { expenses: expenseRows, budgets: adjustedBudgets, timeFrame });
+                // Calculate totals
+                const totalExpenses = expenseRows.reduce((sum, expense) => sum + expense.amount, 0);
+                const totalIncome = incomeRows.reduce((sum, income) => sum + income.amount, 0);
+                const totalRemaining = totalIncome - totalExpenses;
+
+                // Adjust the budgets for day/week
+                const adjustedBudgets = budgetRows.map(budget => ({
+                    ...budget,
+                    budget_amount: budget.budget_amount * budgetMultiplier
+                }));
+
+                // Render both expenses, budgets, income, and totals
+                res.render('index', { 
+                    expenses: expenseRows, 
+                    budgets: adjustedBudgets, 
+                    timeFrame, 
+                    totalExpenses, 
+                    totalIncome, 
+                    totalRemaining 
+                });
+            });
         });
     });
 });
 
-
-// Add a new expense (handling form submission)
-app.post('/add-expense', (req, res) => {
-    const { expense_category, description, amount } = req.body;
-    const date = new Date().toISOString().split('T')[0]; // Current date
-
-    db.run(
-        'INSERT INTO expenses (expense_category, description, amount, date) VALUES (?, ?, ?, ?)',
-        [expense_category, description, amount, date],
-        (err) => {
-            if (err) {
-                throw err;
-            }
-            res.redirect('/');
-        }
-    );
+// Route to render the playground
+app.get('/playground', (req, res) => {
+    res.render('playground');
 });
 
-// Route to render the budget page (form to set budgets)
-app.get('/budgets', (req, res) => {
-    db.all('SELECT * FROM budgets', [], (err, rows) => {
-        if (err) {
-            throw err;
-        }
-        res.render('budgets', { budgets: rows });
+// Add a new expense
+app.post('/add-expense', (req, res) => {
+    const { expense_category, description, amount } = req.body;
+    const date = new Date().toISOString().split('T')[0];
+
+    db.run('INSERT INTO expenses (expense_category, description, amount, date) VALUES (?, ?, ?, ?)',
+        [expense_category, description, amount, date], (err) => {
+            if (err) throw err;
+            res.redirect('/');
+        });
+});
+
+// Add new income
+app.post('/add-income', (req, res) => {
+    const { source, amount } = req.body;
+    const date = new Date().toISOString().split('T')[0];
+    
+    db.run('INSERT INTO income (source, amount, date) VALUES (?, ?, ?)', [source, amount, date], (err) => {
+        if (err) throw err;
+        res.redirect('/');
     });
 });
 
-// Route to handle form submission for setting/updating budgets
+// Route to render the budget page
+app.get('/budgets', (req, res) => {
+    db.all('SELECT * FROM budgets', [], (err, rows) => {
+        if (err) throw err;
+        
+        const totalBudget = rows.reduce((sum, budget) => sum + (budget.budget_amount || 0), 0);
+        res.render('budgets', { budgets: rows, totalBudget });
+    });
+});
+
+// Set or update a budget
 app.post('/set-budget', (req, res) => {
     const { category, budget_amount } = req.body;
 
-    db.run(`
-        INSERT INTO budgets (category, budget_amount)
-        VALUES (?, ?)
-        ON CONFLICT(category) DO UPDATE SET budget_amount=excluded.budget_amount
-    `, [category, budget_amount], (err) => {
+    db.run(`INSERT INTO budgets (category, budget_amount)
+            VALUES (?, ?)
+            ON CONFLICT(category) DO UPDATE SET budget_amount=excluded.budget_amount`,
+        [category, budget_amount], (err) => {
+            if (err) throw err;
+            res.redirect('/budgets');
+        });
+});
+
+// Route to export expenses as CSV and clear them
+app.post('/export-and-reset-expenses', (req, res) => {
+    db.all('SELECT * FROM expenses', [], (err, rows) => {
         if (err) {
-            throw err;
+            console.error(err);
+            return res.status(500).send("Error exporting data.");
         }
-        res.redirect('/budgets');
+
+        if (rows.length > 0) {
+            const csvData = parse(rows, { fields: ['id', 'expense_category', 'description', 'amount', 'date'] });
+
+            fs.writeFile('./exported_expenses.csv', csvData, (err) => {
+                if (err) {
+                    console.error('Error writing CSV file', err);
+                    return res.status(500).send("Error exporting data.");
+                }
+
+                db.run('DELETE FROM expenses', (err) => {
+                    if (err) {
+                        console.error(err);
+                        return res.status(500).send("Error clearing expenses.");
+                    }
+                    res.redirect('/');
+                });
+            });
+        } else {
+            res.redirect('/');
+        }
     });
 });
-// Route to reset all expenses
-app.post('/reset-expenses', (req, res) => {
-    db.run('DELETE FROM expenses', (err) => {
-        if (err) {
-            throw err;
-        }
-        res.redirect('/');
-    });
-});
-// Route to delete an expense
+// Delete an expense
 app.post('/delete-expense', (req, res) => {
-    const { id } = req.body; // Get the expense ID
+    const { id } = req.body;
     db.run('DELETE FROM expenses WHERE id = ?', [id], (err) => {
-        if (err) {
-            throw err;
-        }
+        if (err) throw err;
         res.redirect('/');
     });
 });
-// Route to delete a budget
+
+// Delete a budget
 app.post('/delete-budget', (req, res) => {
-    const { category } = req.body;  // Extract the category from the form
+    const { category } = req.body;
 
     db.run('DELETE FROM budgets WHERE category = ?', [category], (err) => {
-        if (err) {
-            throw err;
-        }
-        res.redirect('/budgets');  // Redirect to the budgets page after deletion
+        if (err) throw err;
+        res.redirect('/budgets');
     });
 });
 
